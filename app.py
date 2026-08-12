@@ -1,14 +1,4 @@
-# Masukkan kata sandi yang Anda inginkan di sini
-KATA_SANDI_RAHASIA = "SSO2026Juara"
-
-# Form Login Sederhana
-password_input = st.text_input("Masukkan Password untuk Mengakses Aplikasi:", type="password")
-
-if password_input != KATA_SANDI_RAHASIA:
-    st.warning("🔒 Silakan masukkan password yang benar untuk melanjutkan.")
-    st.stop()  # Menghentikan eksekusi kode di bawahnya sampai password benar
-
-# --- KODE APLIKASI UTAMA ANDA DIMULAI DI SINI ---
+Python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,6 +7,20 @@ import cv2
 import io
 import re
 
+# 1. PERINTAH STREAMLIT WAJIB DI PALING ATAS
+st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
+
+# 2. LOGIKA PASSWORD / KATA SANDI
+KATA_SANDI_RAHASIA = "SSO2026Juara"
+
+password_input = st.sidebar.text_input("🔑 Masukkan Password Aplikasi:", type="password")
+
+if password_input != KATA_SANDI_RAHASIA:
+    st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
+    st.warning("🔒 Silakan masukkan password yang benar pada sidebar di samping untuk melanjutkan.")
+    st.stop()  # Menghentikan eksekusi kode di bawahnya jika password belum/salah diisi
+
+# --- 3. KODE APLIKASI UTAMA ANDA DIMULAI DI SINI ---
 st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
 
 st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
