@@ -1,3 +1,14 @@
+# Masukkan kata sandi yang Anda inginkan di sini
+KATA_SANDI_RAHASIA = "SSO2026Juara"
+
+# Form Login Sederhana
+password_input = st.text_input("Masukkan Password untuk Mengakses Aplikasi:", type="password")
+
+if password_input != KATA_SANDI_RAHASIA:
+    st.warning("🔒 Silakan masukkan password yang benar untuk melanjutkan.")
+    st.stop()  # Menghentikan eksekusi kode di bawahnya sampai password benar
+
+# --- KODE APLIKASI UTAMA ANDA DIMULAI DI SINI ---
 import streamlit as st
 import pandas as pd
 import numpy as np
