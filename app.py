@@ -1,4 +1,3 @@
-Python
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -21,8 +20,6 @@ if password_input != KATA_SANDI_RAHASIA:
     st.stop()  # Menghentikan eksekusi kode di bawahnya jika password belum/salah diisi
 
 # --- 3. KODE APLIKASI UTAMA ANDA DIMULAI DI SINI ---
-st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
-
 st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
 st.write("Sistem pencocokan & koreksi otomatis disesuaikan untuk **LJK Resmi SSO 100 Soal**.")
 
