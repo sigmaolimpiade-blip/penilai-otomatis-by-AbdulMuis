@@ -88,6 +88,7 @@ def ekstrak_nomor_id_dari_nama(nama_file):
     match = re.findall(r'\d{3,9}', nama_file)
     return match[0] if match else "0001"
 
+# --- ALGORITMA REAL OMR UNTUK BUBBLE SCANNING ---
 def proses_omr_ljk_sso(file_obj, file_name):
     file_obj.seek(0)
     bytes_data = file_obj.read()
@@ -103,15 +104,52 @@ def proses_omr_ljk_sso(file_obj, file_name):
         dict_jawaban[str(no)] = ""
 
     if img is not None:
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY_INV)
+        # Resize gambar ke ukuran standar untuk stabilisasi OMR
+        img_resized = cv2.resize(img, (1000, 1400))
+        gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+        blur = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        arsiran_contoh = {
-            '1': 'A', '2': 'B', '3': 'D', '4': 'C', 
-            '5': 'B', '6': 'B', '7': 'C', '8': 'D'
-        }
-        for q, ans in arsiran_contoh.items():
-            dict_jawaban[q] = ans
+        # Binarisasi thresholding (Memisahkan arsiran hitam dari latar putih)
+        thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+        
+        # Definisi Opsi Pilihan (A, B, C, D)
+        pilihan_map = ['A', 'B', 'C', 'D']
+        
+        # Grid LJK 100 Soal biasanya dibagi menjadi 4 Kolom Utama
+        # Tiap Kolom berisi 25 Soal
+        col_width = 200
+        col_height = 1000
+        start_y = 300
+        start_xs = [100, 320, 540, 760] # Koordinat perkiraan horizontal 4 kolom
+        
+        soal_idx = 1
+        for col_x in start_xs:
+            for r in range(25): # 25 Soal per baris di setiap kolom
+                if soal_idx > 100:
+                    break
+                
+                # Koordinat Bounding Box Soal
+                y_pos = int(start_y + (r * (col_height / 25)))
+                
+                max_pixels = 0
+                selected_choice = ""
+                
+                # Cek ke-4 Bubble (A, B, C, D)
+                for choice_idx in range(4):
+                    x_pos = int(col_x + (choice_idx * 35))
+                    
+                    # Crop ROI (Region of Interest) dari setiap bubble
+                    roi = thresh[y_pos : y_pos + 22, x_pos : x_pos + 22]
+                    
+                    if roi.size > 0:
+                        count_black = cv2.countNonZero(roi) # Hitung jumlah piksel arsiran
+                        # Ambang batas minimal piksel hitam dianggap terarsir
+                        if count_black > max_pixels and count_black > 120:
+                            max_pixels = count_black
+                            selected_choice = pilihan_map[choice_idx]
+                
+                dict_jawaban[str(soal_idx)] = selected_choice
+                soal_idx += 1
 
     return dict_jawaban, id_peserta
 
