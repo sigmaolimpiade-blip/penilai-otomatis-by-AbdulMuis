@@ -12,14 +12,11 @@ st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
 # ==============================================================================
 # 🔒 SISTEM LOGIN & OTENTIKASI
 # ==============================================================================
-# Atur password aplikasi di bawah ini
 KATA_SANDI_RAHASIA = "SSO2026Juara"
 
-# Inisialisasi status login pada session state jika belum ada
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
-# Tampilan Form Login jika pengguna belum terautentikasi
 if not st.session_state["authenticated"]:
     st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
     st.subheader("🔒 Area Terkunci - Silakan Login")
@@ -36,16 +33,15 @@ if not st.session_state["authenticated"]:
             else:
                 st.error("❌ Password salah! Silakan coba lagi.")
                 
-    st.stop()  # Menghentikan eksekusi kode utama di bawah jika belum login
+    st.stop()
 
-# Tombol Logout & Status User di Sidebar (Muncul jika sudah login)
 st.sidebar.write("👤 Status: **Terautentikasi**")
 if st.sidebar.button("🔒 Logout"):
     st.session_state["authenticated"] = False
     st.rerun()
 
 # ==============================================================================
-# 🚀 APLIKASI UTAMA (Hanya berjalan jika sudah Login)
+# 🚀 APLIKASI UTAMA
 # ==============================================================================
 
 st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
@@ -53,7 +49,7 @@ st.write("Sistem pencocokan & koreksi otomatis disesuaikan untuk **LJK Resmi SSO
 
 # 1. Sidebar - Upload Master Data & Kunci Jawaban
 st.sidebar.header("1. Data Master & Kunci Jawaban")
-file_db = st.sidebar.file_uploader("Upload Database Siswa (.xlsx)", type=["xlsx", "csv"])
+file_db = st.sidebar.file_uploader("Upload Database Siswa (.xlsx, .csv)", type=["xlsx", "csv"])
 file_kunci = st.sidebar.file_uploader(
     "Upload Kunci Jawaban Mapel (.png, .jpg, .xlsx, .csv)", 
     type=["png", "jpg", "jpeg", "xlsx", "csv"]
@@ -94,6 +90,18 @@ def ekstrak_nomor_id_dari_nama(nama_file):
     match = re.findall(r'\d{3,9}', nama_file)
     return match[0] if match else "0001"
 
+def urutkan_4_titik_sudut(pts):
+    # Mengurutkan titik: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[np.argmin(s)]       # Top-Left (x+y terkecil)
+    rect[2] = pts[np.argmax(s)]       # Bottom-Right (x+y terbesar)
+    
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[np.argmin(diff)]    # Top-Right (x-y terkecil)
+    rect[3] = pts[np.argmax(diff)]    # Bottom-Left (x-y terbesar)
+    return rect
+
 def proses_omr_ljk_sso(file_obj, file_name):
     file_obj.seek(0)
     bytes_data = file_obj.read()
@@ -110,14 +118,14 @@ def proses_omr_ljk_sso(file_obj, file_name):
     if img is None:
         return dict_jawaban, id_peserta
 
-    # 1. Konversi ke Grayscale & Adaptive Threshold
+    # 1. Grayscale & Thresholding
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blur = cv2.GaussianBlur(gray, (5, 5), 0)
     thresh = cv2.adaptiveThreshold(
         blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
     )
 
-    # 2. Deteksi Kontur untuk Mencari 4 Kotak Sudut Hitam (Alignment Marks)
+    # 2. Deteksi Kontur Kotak Sudut (Alignment Marks)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     box_corners = []
 
@@ -126,42 +134,30 @@ def proses_omr_ljk_sso(file_obj, file_name):
         aspect_ratio = float(w_box) / h_box
         area = cv2.contourArea(c)
         
-        # Filter kontur yang menyerupai kotak hitam di sudut
         if 0.7 <= aspect_ratio <= 1.3 and area > (img.shape[0] * img.shape[1] * 0.001):
-            box_corners.append((x + w_box // 2, y + h_box // 2))
+            box_corners.append([x + w_box // 2, y + h_box // 2])
 
-    # Jika 4 sudut terdeteksi, lakukan Perspective Warp (Meluruskan Kertas)
+    # Transformasi Perspektif jika ditemukan 4 sudut atau lebih
     if len(box_corners) >= 4:
-        # Urutkan 4 titik: Top-Left, Top-Right, Bottom-Right, Bottom-Left
-        box_corners = sorted(box_corners, key=lambda p: p[1])
-        top_two = sorted(box_corners[:2], key=lambda p: p[0])
-        bottom_two = sorted(box_corners[-2:], key=lambda p: p[0])
-        
-        pts1 = np.float32([top_two[0], top_two[1], bottom_two[1], bottom_two[0]])
-        
-        # Ukuran standar kertas setelah diluruskan (Width x Height)
+        pts1 = urutkan_4_titik_sudut(np.array(box_corners[:4], dtype="float32"))
         target_w, target_h = 1000, 1400
         pts2 = np.float32([[0, 0], [target_w, 0], [target_w, target_h], [0, target_h]])
         
-        # Matriks transformasi perspektif
         M = cv2.getPerspectiveTransform(pts1, pts2)
         warped_thresh = cv2.warpPerspective(thresh, M, (target_w, target_h))
     else:
-        # Fallback jika 4 kotak sudut tidak penuh terdeteksi
         warped_thresh = cv2.resize(thresh, (1000, 1400))
 
-    # 3. Pembacaan Jawaban (Gambar Sudah Rata & Tegak Presisi 1000x1400)
-    # LJK SSO 100 Soal dibagi 4 Kolom (1-25, 26-50, 51-75, 76-100)
+    # 3. Pembacaan Jawaban (4 Kolom x 25 Soal)
     kolom_x_center = [
-        [182, 218, 254, 290],  # Kolom 1 (No 1-25)
-        [412, 448, 484, 520],  # Kolom 2 (No 26-50)
-        [642, 678, 714, 750],  # Kolom 3 (No 51-75)
-        [872, 908, 944, 980]   # Kolom 4 (No 76-100)
+        [182, 218, 254, 290],  # Kolom 1 (1-25)
+        [412, 448, 484, 520],  # Kolom 2 (26-50)
+        [642, 678, 714, 750],  # Kolom 3 (51-75)
+        [872, 908, 944, 980]   # Kolom 4 (76-100)
     ]
     
-    y_start_base = 550  # Posisi Y awal nomor 1 pada gambar 1400px
-    y_step = 27         # Jarak vertikal antar baris nomor
-
+    y_start_base = 550
+    y_step = 27
     opsi_labels = ['A', 'B', 'C', 'D']
 
     for col_idx in range(4):
@@ -170,26 +166,22 @@ def proses_omr_ljk_sso(file_obj, file_name):
             y_center = y_start_base + (row_idx * y_step)
             
             density_list = []
-            
             for opt_idx in range(4):
                 x_center = kolom_x_center[col_idx][opt_idx]
-                
-                # Ekstrak area bulatan (ROI)
-                roi = warped_thresh[y_center-8 : y_center+8, x_center-8 : x_center+8]
+                roi = warped_thresh[max(0, y_center-8):min(1400, y_center+8), 
+                                    max(0, x_center-8):min(1000, x_center+8)]
                 count = cv2.countNonZero(roi)
                 density_list.append(count)
             
-            # Cari Opsi dengan Kegelapan/Arsiran Tertinggi
             max_density = max(density_list)
             max_idx = density_list.index(max_density)
-            
-            # Evaluasi Kontras: Opsi terpilih harus jauh lebih gelap dari rata-rata opsi lain
             avg_other = (sum(density_list) - max_density) / 3.0
             
             if max_density > 80 and max_density > (avg_other * 1.8):
                 dict_jawaban[no_soal] = opsi_labels[max_idx]
 
     return dict_jawaban, id_peserta
+
 if file_db and file_kunci and files_scan:
     try:
         df_db = pd.read_excel(file_db) if file_db.name.endswith('.xlsx') else pd.read_csv(file_db)
@@ -311,17 +303,19 @@ if file_db and file_kunci and files_scan:
 
             df_final = pd.merge(df_db_filtered, df_scan, left_on=col_id_db, right_on=col_id_scan, how='inner')
 
-            col_kelas = None
-            for c in df_final.columns:
-                if 'KELAS' in c.upper() or 'CLASS' in c.upper():
-                    col_kelas = c
-                    break
+            # Cari Nama Kolom Dinamis untuk Ekspor
+            col_nama = next((c for c in df_final.columns if 'NAMA' in c.upper()), None)
+            col_kelas = next((c for c in df_final.columns if 'KELAS' in c.upper() or 'CLASS' in c.upper()), None)
 
             if len(df_final) > 0:
                 st.success(f"✅ Berhasil memproses {len(df_final)} peserta untuk bidang **{mapel_target}**!")
                 st.dataframe(df_final, use_container_width=True)
 
-                kolom_download = [col_id_db, 'Nama', col_bidang_db]
+                kolom_download = [col_id_db]
+                if col_nama:
+                    kolom_download.append(col_nama)
+                kolom_download.append(col_bidang_db)
+                
                 if col_kelas and col_kelas not in kolom_download:
                     kolom_download.append(col_kelas)
                 if 'Asal Sekolah' in df_final.columns and 'Asal Sekolah' not in kolom_download:
