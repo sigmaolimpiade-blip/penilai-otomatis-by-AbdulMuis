@@ -104,52 +104,90 @@ def proses_omr_ljk_sso(file_obj, file_name):
     
     id_peserta = ekstrak_nomor_id_dari_nama(file_name)
     dict_jawaban = {'NOMOR ID': id_peserta}
-    
-    # Inisialisasi 100 soal
     for no in range(1, 101):
         dict_jawaban[str(no)] = ""
 
-    if img is not None:
-        # Ubah ke Grayscale dan Thresholding Biner
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        _, thresh = cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY_INV)
+    if img is None:
+        return dict_jawaban, id_peserta
+
+    # 1. Konversi ke Grayscale & Adaptive Threshold
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    thresh = cv2.adaptiveThreshold(
+        blur, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 2
+    )
+
+    # 2. Deteksi Kontur untuk Mencari 4 Kotak Sudut Hitam (Alignment Marks)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    box_corners = []
+
+    for c in contours:
+        x, y, w_box, h_box = cv2.boundingRect(c)
+        aspect_ratio = float(w_box) / h_box
+        area = cv2.contourArea(c)
         
-        h, w = thresh.shape
+        # Filter kontur yang menyerupai kotak hitam di sudut
+        if 0.7 <= aspect_ratio <= 1.3 and area > (img.shape[0] * img.shape[1] * 0.001):
+            box_corners.append((x + w_box // 2, y + h_box // 2))
+
+    # Jika 4 sudut terdeteksi, lakukan Perspective Warp (Meluruskan Kertas)
+    if len(box_corners) >= 4:
+        # Urutkan 4 titik: Top-Left, Top-Right, Bottom-Right, Bottom-Left
+        box_corners = sorted(box_corners, key=lambda p: p[1])
+        top_two = sorted(box_corners[:2], key=lambda p: p[0])
+        bottom_two = sorted(box_corners[-2:], key=lambda p: p[0])
         
-        # Koordinat relatif untuk Kolom 1 (Soal 1 - 25)
-        # Opsi A, B, C, D
-        # Catatan: Algoritma membagi gambar berdasarkan proporsi grid LJK SSO
-        y_start_pct = 0.395  # Posisi Soal 1 dari atas
-        y_step_pct  = 0.0195 # Jarak vertikal antar nomor
+        pts1 = np.float32([top_two[0], top_two[1], bottom_two[1], bottom_two[0]])
         
-        x_opts_pct = [0.182, 0.218, 0.254, 0.290] # Posisi horizontal A, B, C, D (Kolom 1)
-        opsi_labels = ['A', 'B', 'C', 'D']
+        # Ukuran standar kertas setelah diluruskan (Width x Height)
+        target_w, target_h = 1000, 1400
+        pts2 = np.float32([[0, 0], [target_w, 0], [target_w, target_h], [0, target_h]])
         
-        # Deteksi Soal 1 s.d. 25
-        for i in range(25):
-            no_soal = str(i + 1)
-            y_center = int((y_start_pct + i * y_step_pct) * h)
+        # Matriks transformasi perspektif
+        M = cv2.getPerspectiveTransform(pts1, pts2)
+        warped_thresh = cv2.warpPerspective(thresh, M, (target_w, target_h))
+    else:
+        # Fallback jika 4 kotak sudut tidak penuh terdeteksi
+        warped_thresh = cv2.resize(thresh, (1000, 1400))
+
+    # 3. Pembacaan Jawaban (Gambar Sudah Rata & Tegak Presisi 1000x1400)
+    # LJK SSO 100 Soal dibagi 4 Kolom (1-25, 26-50, 51-75, 76-100)
+    kolom_x_center = [
+        [182, 218, 254, 290],  # Kolom 1 (No 1-25)
+        [412, 448, 484, 520],  # Kolom 2 (No 26-50)
+        [642, 678, 714, 750],  # Kolom 3 (No 51-75)
+        [872, 908, 944, 980]   # Kolom 4 (No 76-100)
+    ]
+    
+    y_start_base = 550  # Posisi Y awal nomor 1 pada gambar 1400px
+    y_step = 27         # Jarak vertikal antar baris nomor
+
+    opsi_labels = ['A', 'B', 'C', 'D']
+
+    for col_idx in range(4):
+        for row_idx in range(25):
+            no_soal = str(col_idx * 25 + row_idx + 1)
+            y_center = y_start_base + (row_idx * y_step)
             
-            pilihan_terarsir = ""
-            max_pixels = 0
+            density_list = []
             
-            for idx_opt, x_pct in enumerate(x_opts_pct):
-                x_center = int(x_pct * w)
+            for opt_idx in range(4):
+                x_center = kolom_x_center[col_idx][opt_idx]
                 
-                # Area ROI (Region of Interest) sekitar bulatan
-                r = int(h * 0.007)
-                roi = thresh[max(0, y_center-r):min(h, y_center+r), 
-                             max(0, x_center-r):min(w, x_center+r)]
-                
-                # Hitung jumlah pixel hitam (diarsir)
+                # Ekstrak area bulatan (ROI)
+                roi = warped_thresh[y_center-8 : y_center+8, x_center-8 : x_center+8]
                 count = cv2.countNonZero(roi)
-                
-                # Ambang batas minimal piksel terarsir (threshold)
-                if count > 50 and count > max_pixels:
-                    max_pixels = count
-                    pilihan_terarsir = opsi_labels[idx_opt]
+                density_list.append(count)
             
-            dict_jawaban[no_soal] = pilihan_terarsir
+            # Cari Opsi dengan Kegelapan/Arsiran Tertinggi
+            max_density = max(density_list)
+            max_idx = density_list.index(max_density)
+            
+            # Evaluasi Kontras: Opsi terpilih harus jauh lebih gelap dari rata-rata opsi lain
+            avg_other = (sum(density_list) - max_density) / 3.0
+            
+            if max_density > 80 and max_density > (avg_other * 1.8):
+                dict_jawaban[no_soal] = opsi_labels[max_idx]
 
     return dict_jawaban, id_peserta
 if file_db and file_kunci and files_scan:
