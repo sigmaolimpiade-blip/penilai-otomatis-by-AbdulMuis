@@ -9,15 +9,37 @@ import re
 # 1. PERINTAH STREAMLIT WAJIB DI PALING ATAS
 st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
 
-# 2. LOGIKA PASSWORD / KATA SANDI
+# 2. LOGIKA KATA SANDI / SYSTEM LOGIN
 KATA_SANDI_RAHASIA = "SSO2026Juara"
 
-password_input = st.sidebar.text_input("🔑 Masukkan Password Aplikasi:", type="password")
+# Inisialisasi status login jika belum ada
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
 
-if password_input != KATA_SANDI_RAHASIA:
+# Tampilan Form Login Jika Belum Login
+if not st.session_state["authenticated"]:
     st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
-    st.warning("🔒 Silakan masukkan password yang benar pada sidebar di samping untuk melanjutkan.")
-    st.stop()  # Menghentikan eksekusi kode di bawahnya jika password belum/salah diisi
+    st.subheader("🔒 Area Terkunci")
+    
+    with st.form("form_login"):
+        password_input = st.text_input("Masukkan Password Aplikasi:", type="password")
+        submit_button = st.form_submit_button("Masuk / Login")
+        
+        if submit_button:
+            if password_input == KATA_SANDI_RAHASIA:
+                st.session_state["authenticated"] = True
+                st.success("✅ Password benar! Membuka aplikasi...")
+                st.rerun() # Refresh halaman untuk masuk ke aplikasi
+            else:
+                st.error("❌ Password salah! Silakan coba lagi.")
+                
+    st.stop() # TAHAN DI SINI, JANGAN JALANKAN KODE DI BAWAH JIKA BELUM LOGIN
+
+# Tombol Logout di Sidebar (opsional)
+st.sidebar.write("👤 Status: **Terautentikasi**")
+if st.sidebar.button("🔒 Logout"):
+    st.session_state["authenticated"] = False
+    st.rerun()
 
 # --- 3. KODE APLIKASI UTAMA ANDA DIMULAI DI SINI ---
 st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
@@ -67,7 +89,6 @@ def ekstrak_nomor_id_dari_nama(nama_file):
     return match[0] if match else "0001"
 
 def proses_omr_ljk_sso(file_obj, file_name):
-    # Reset pointer file ke posisi awal agar data bisa dibaca ulang
     file_obj.seek(0)
     bytes_data = file_obj.read()
     file_obj.seek(0)
@@ -78,7 +99,6 @@ def proses_omr_ljk_sso(file_obj, file_name):
     id_peserta = ekstrak_nomor_id_dari_nama(file_name)
     dict_jawaban = {'NOMOR ID': id_peserta}
     
-    # Inisialisasi 100 soal
     for no in range(1, 101):
         dict_jawaban[str(no)] = ""
 
@@ -86,7 +106,6 @@ def proses_omr_ljk_sso(file_obj, file_name):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY_INV)
         
-        # Sampel arsiran contoh
         arsiran_contoh = {
             '1': 'A', '2': 'B', '3': 'D', '4': 'C', 
             '5': 'B', '6': 'B', '7': 'C', '8': 'D'
