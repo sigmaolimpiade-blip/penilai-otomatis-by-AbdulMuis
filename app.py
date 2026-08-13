@@ -6,7 +6,47 @@ import cv2
 import io
 import re
 
+# 1. PERINTAH STREAMLIT WAJIB DI PALING ATAS
 st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
+
+# ==============================================================================
+# 🔒 SISTEM LOGIN & OTENTIKASI
+# ==============================================================================
+# Atur password aplikasi di bawah ini
+KATA_SANDI_RAHASIA = "SSO2026Juara"
+
+# Inisialisasi status login pada session state jika belum ada
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+
+# Tampilan Form Login jika pengguna belum terautentikasi
+if not st.session_state["authenticated"]:
+    st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
+    st.subheader("🔒 Area Terkunci - Silakan Login")
+    
+    with st.form("form_login"):
+        password_input = st.text_input("Masukkan Password Aplikasi:", type="password")
+        submit_button = st.form_submit_button("Masuk / Login")
+        
+        if submit_button:
+            if password_input == KATA_SANDI_RAHASIA:
+                st.session_state["authenticated"] = True
+                st.success("✅ Password benar! Membuka aplikasi...")
+                st.rerun()
+            else:
+                st.error("❌ Password salah! Silakan coba lagi.")
+                
+    st.stop()  # Menghentikan eksekusi kode utama di bawah jika belum login
+
+# Tombol Logout & Status User di Sidebar (Muncul jika sudah login)
+st.sidebar.write("👤 Status: **Terautentikasi**")
+if st.sidebar.button("🔒 Logout"):
+    st.session_state["authenticated"] = False
+    st.rerun()
+
+# ==============================================================================
+# 🚀 APLIKASI UTAMA (Hanya berjalan jika sudah Login)
+# ==============================================================================
 
 st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
 st.write("Sistem pencocokan & koreksi otomatis disesuaikan untuk **LJK Resmi SSO 100 Soal**.")
