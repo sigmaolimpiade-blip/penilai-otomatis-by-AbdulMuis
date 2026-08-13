@@ -95,7 +95,6 @@ def ekstrak_nomor_id_dari_nama(nama_file):
     return match[0] if match else "0001"
 
 def proses_omr_ljk_sso(file_obj, file_name):
-    # Reset pointer file ke posisi awal agar data bisa dibaca ulang
     file_obj.seek(0)
     bytes_data = file_obj.read()
     file_obj.seek(0)
@@ -111,19 +110,48 @@ def proses_omr_ljk_sso(file_obj, file_name):
         dict_jawaban[str(no)] = ""
 
     if img is not None:
+        # Ubah ke Grayscale dan Thresholding Biner
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         _, thresh = cv2.threshold(gray, 170, 255, cv2.THRESH_BINARY_INV)
         
-        # Sampel arsiran contoh
-        arsiran_contoh = {
-            '1': 'A', '2': 'B', '3': 'D', '4': 'C', 
-            '5': 'B', '6': 'B', '7': 'C', '8': 'D'
-        }
-        for q, ans in arsiran_contoh.items():
-            dict_jawaban[q] = ans
+        h, w = thresh.shape
+        
+        # Koordinat relatif untuk Kolom 1 (Soal 1 - 25)
+        # Opsi A, B, C, D
+        # Catatan: Algoritma membagi gambar berdasarkan proporsi grid LJK SSO
+        y_start_pct = 0.395  # Posisi Soal 1 dari atas
+        y_step_pct  = 0.0195 # Jarak vertikal antar nomor
+        
+        x_opts_pct = [0.182, 0.218, 0.254, 0.290] # Posisi horizontal A, B, C, D (Kolom 1)
+        opsi_labels = ['A', 'B', 'C', 'D']
+        
+        # Deteksi Soal 1 s.d. 25
+        for i in range(25):
+            no_soal = str(i + 1)
+            y_center = int((y_start_pct + i * y_step_pct) * h)
+            
+            pilihan_terarsir = ""
+            max_pixels = 0
+            
+            for idx_opt, x_pct in enumerate(x_opts_pct):
+                x_center = int(x_pct * w)
+                
+                # Area ROI (Region of Interest) sekitar bulatan
+                r = int(h * 0.007)
+                roi = thresh[max(0, y_center-r):min(h, y_center+r), 
+                             max(0, x_center-r):min(w, x_center+r)]
+                
+                # Hitung jumlah pixel hitam (diarsir)
+                count = cv2.countNonZero(roi)
+                
+                # Ambang batas minimal piksel terarsir (threshold)
+                if count > 50 and count > max_pixels:
+                    max_pixels = count
+                    pilihan_terarsir = opsi_labels[idx_opt]
+            
+            dict_jawaban[no_soal] = pilihan_terarsir
 
     return dict_jawaban, id_peserta
-
 if file_db and file_kunci and files_scan:
     try:
         df_db = pd.read_excel(file_db) if file_db.name.endswith('.xlsx') else pd.read_csv(file_db)
