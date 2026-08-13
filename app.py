@@ -6,17 +6,15 @@ import cv2
 import io
 import re
 
-# 1. PERINTAH STREAMLIT WAJIB DI PALING ATAS
+# 1. WAJIB DI PALING ATAS
 st.set_page_config(page_title="Sistem Penilaian SSO 2026", layout="wide")
 
-# 2. LOGIKA KATA SANDI / SYSTEM LOGIN
+# 2. LOGIKA KATA SANDI
 KATA_SANDI_RAHASIA = "SSO2026Juara"
 
-# Inisialisasi status login jika belum ada
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 
-# Tampilan Form Login Jika Belum Login
 if not st.session_state["authenticated"]:
     st.title("🏆 Aplikasi Penilaian & Koreksi LJK - SSO 2026")
     st.subheader("🔒 Area Terkunci")
@@ -29,11 +27,13 @@ if not st.session_state["authenticated"]:
             if password_input == KATA_SANDI_RAHASIA:
                 st.session_state["authenticated"] = True
                 st.success("✅ Password benar! Membuka aplikasi...")
-                st.rerun() # Refresh halaman untuk masuk ke aplikasi
+                st.rerun()
             else:
                 st.error("❌ Password salah! Silakan coba lagi.")
                 
-    st.stop() # TAHAN DI SINI, JANGAN JALANKAN KODE DI BAWAH JIKA BELUM LOGIN
+    st.stop() # Menghentikan eksekusi kode di bawah jika belum login
+
+# --- KODE UTAMA APLIKASI DI BAWAH INI BARU DIJALANKAN JIKA SUDAH LOGIN ---
 
 # Tombol Logout di Sidebar (opsional)
 st.sidebar.write("👤 Status: **Terautentikasi**")
