@@ -88,7 +88,7 @@ def ekstrak_nomor_id_dari_nama(nama_file):
     match = re.findall(r'\d{3,9}', nama_file)
     return match[0] if match else "0001"
 
-# --- ALGORITMA REAL OMR UNTUK BUBBLE SCANNING ---
+# --- ALGORITMA REAL OMR UNTUK BUBBLE SCANNING LJK SSO 2026 ---
 def proses_omr_ljk_sso(file_obj, file_name):
     file_obj.seek(0)
     bytes_data = file_obj.read()
@@ -97,61 +97,100 @@ def proses_omr_ljk_sso(file_obj, file_name):
     file_np = np.frombuffer(bytes_data, dtype=np.uint8)
     img = cv2.imdecode(file_np, cv2.IMREAD_COLOR)
     
-    id_peserta = ekstrak_nomor_id_dari_nama(file_name)
-    dict_jawaban = {'NOMOR ID': id_peserta}
+    id_peserta_filename = ekstrak_nomor_id_dari_nama(file_name)
+    dict_jawaban = {'NOMOR ID': id_peserta_filename}
     
     for no in range(1, 101):
         dict_jawaban[str(no)] = ""
 
-    if img is not None:
-        # Resize gambar ke ukuran standar untuk stabilisasi OMR
-        img_resized = cv2.resize(img, (1000, 1400))
-        gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (5, 5), 0)
-        
-        # Binarisasi thresholding (Memisahkan arsiran hitam dari latar putih)
-        thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
-        
-        # Definisi Opsi Pilihan (A, B, C, D)
-        pilihan_map = ['A', 'B', 'C', 'D']
-        
-        # Grid LJK 100 Soal biasanya dibagi menjadi 4 Kolom Utama
-        # Tiap Kolom berisi 25 Soal
-        col_width = 200
-        col_height = 1000
-        start_y = 300
-        start_xs = [100, 320, 540, 760] # Koordinat perkiraan horizontal 4 kolom
-        
-        soal_idx = 1
-        for col_x in start_xs:
-            for r in range(25): # 25 Soal per baris di setiap kolom
-                if soal_idx > 100:
-                    break
-                
-                # Koordinat Bounding Box Soal
-                y_pos = int(start_y + (r * (col_height / 25)))
-                
-                max_pixels = 0
-                selected_choice = ""
-                
-                # Cek ke-4 Bubble (A, B, C, D)
-                for choice_idx in range(4):
-                    x_pos = int(col_x + (choice_idx * 35))
-                    
-                    # Crop ROI (Region of Interest) dari setiap bubble
-                    roi = thresh[y_pos : y_pos + 22, x_pos : x_pos + 22]
-                    
-                    if roi.size > 0:
-                        count_black = cv2.countNonZero(roi) # Hitung jumlah piksel arsiran
-                        # Ambang batas minimal piksel hitam dianggap terarsir
-                        if count_black > max_pixels and count_black > 120:
-                            max_pixels = count_black
-                            selected_choice = pilihan_map[choice_idx]
-                
-                dict_jawaban[str(soal_idx)] = selected_choice
-                soal_idx += 1
+    if img is None:
+        return dict_jawaban, id_peserta_filename
 
-    return dict_jawaban, id_peserta
+    # 1. Resize standar & Binarisasi threshold
+    H_TARGET, W_TARGET = 1400, 1000
+    img_resized = cv2.resize(img, (W_TARGET, H_TARGET))
+    gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
+    blur = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)[1]
+
+    # 2. Koreksi Kemiringan Kertas berdasarkan 4 Kotak Sudut LJK (Perspective Warp)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    box_cnts = []
+    
+    for c in contours:
+        x, y, w, h = cv2.boundingRect(c)
+        ar = w / float(h)
+        if 20 <= w <= 120 and 20 <= h <= 120 and 0.7 <= ar <= 1.3:
+            box_cnts.append((x, y, w, h))
+
+    if len(box_cnts) >= 4:
+        box_cnts = sorted(box_cnts, key=lambda b: b[1])
+        top_two = sorted(box_cnts[:2], key=lambda b: b[0])
+        bottom_two = sorted(box_cnts[-2:], key=lambda b: b[0])
+        
+        pts1 = np.float32([
+            [top_two[0][0], top_two[0][1]],
+            [top_two[1][0] + top_two[1][2], top_two[1][1]],
+            [bottom_two[1][0] + bottom_two[1][2], bottom_two[1][1] + bottom_two[1][3]],
+            [bottom_two[0][0], bottom_two[0][1] + bottom_two[0][3]]
+        ])
+        pts2 = np.float32([[0, 0], [W_TARGET, 0], [W_TARGET, H_TARGET], [0, H_TARGET]])
+        
+        M = cv2.getPerspectiveTransform(pts1, pts2)
+        thresh = cv2.warpPerspective(thresh, M, (W_TARGET, H_TARGET))
+
+    # 3. Deteksi Grid Nomor ID (9 Digit)
+    id_digits = []
+    for col in range(9):
+        x_col = int((0.108 + col * 0.038) * W_TARGET)
+        max_black = 0
+        digit_detected = ""
+        for row in range(10):
+            y_row = int((0.158 + row * 0.017) * H_TARGET)
+            roi = thresh[y_row:y_row+18, x_col:x_col+18]
+            if roi.size > 0:
+                count = cv2.countNonZero(roi)
+                if count > max_black and count > 80:
+                    max_black = count
+                    digit_detected = str(row)
+        if digit_detected != "":
+            id_digits.append(digit_detected)
+
+    id_terdeteksi_ljk = "".join(id_digits)
+    final_id = id_terdeteksi_ljk if len(id_terdeteksi_ljk) >= 3 else id_peserta_filename
+    dict_jawaban['NOMOR ID'] = final_id
+
+    # 4. Deteksi Arsiran 100 Soal (4 Kolom x 25 Soal)
+    pilihan_map = ['A', 'B', 'C', 'D']
+    col_x_starts = [0.170, 0.358, 0.548, 0.738]
+    y_start_soal = 0.398
+    y_step_soal = 0.0196
+
+    soal_num = 1
+    for col_idx, x_start_rel in enumerate(col_x_starts):
+        for r in range(25):
+            if soal_num > 100:
+                break
+                
+            y_pos = int((y_start_soal + (r * y_step_soal)) * H_TARGET)
+            max_pixels = 0
+            selected_choice = ""
+            
+            for choice_idx in range(4):
+                x_pos = int((x_start_rel + (choice_idx * 0.032)) * W_TARGET)
+                roi = thresh[y_pos:y_pos+20, x_pos:x_pos+20]
+                
+                if roi.size > 0:
+                    black_pixels = cv2.countNonZero(roi)
+                    if black_pixels > max_pixels and black_pixels > 90:
+                        max_pixels = black_pixels
+                        selected_choice = pilihan_map[choice_idx]
+            
+            dict_jawaban[str(soal_num)] = selected_choice
+            soal_num += 1
+
+    return dict_jawaban, final_id
 
 if file_db and file_kunci and files_scan:
     try:
